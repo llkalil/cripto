@@ -1,0 +1,6 @@
+{
+'APIKey': '1507f9ef578f47330118dbbab5212833',
+ 'APISecret': 'fc80edb9736fc3985893cc31e03e3ce0',
+  'UserId': 214404,
+   'Permissions': ['Trading'],
+    'Nonce': 0}
