@@ -1,4 +1,4 @@
-#Bot para transações automáticas.
+# Bot para transações automáticas.
 
 graph.py para gerar gráfico de transações
 
