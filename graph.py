@@ -3,7 +3,7 @@ import csv
 import matplotlib.pyplot as plt
 import pandas as pd
 
-csv_name = 'cashbook.csv'
+csv_name = 'app/cashbook.csv'
 # Load data
 data = pd.read_csv(csv_name)
 

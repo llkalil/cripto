@@ -9,21 +9,16 @@ import logging
 import numpy as np
 import talib
 
-logging.basicConfig()
-
-nextIvalue = 0
-
 RSI_PERIOD = 14
 RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
-
 TRADE_ID = 40
 TRADE_QUANTITY = 0.05
-
 INTERVAL = 60
 
+nextIvalue = 0
 closes = []
-in_position = False
+is_bought = False
 
 
 def call_service(ws, service_name, data, level=0):
@@ -105,7 +100,7 @@ def exec_buy(payload_data):
 
 
 def process_numbers(payload_data):
-    global in_position
+    global is_bought
     print('===============Received Event===============')
     closes.append(float(payload_data[0][4]))
     # print(closes)
@@ -122,18 +117,18 @@ def process_numbers(payload_data):
         print("the current rsi is {}".format(last_rsi))
 
         if last_rsi > RSI_OVERBOUGHT:
-            if in_position:
+            if is_bought:
                 print("Overbought! Sell! Sell! Sell!")
                 # put binance sell logic here
                 order_succeeded = exec_sell(payload_data)
 
                 if order_succeeded:
-                    in_position = False
+                    is_bought = False
             else:
                 print("It is overbought, but we don't own any. Nothing to do.")
 
         if last_rsi < RSI_OVERSOLD:
-            if in_position:
+            if is_bought:
                 print("It is oversold, but you already own it, nothing to do.")
             else:
                 print("Oversold! Buy! Buy! Buy!")
@@ -141,7 +136,7 @@ def process_numbers(payload_data):
                 order_succeeded = exec_buy(payload_data)
                 # order_succeeded = True
                 if order_succeeded:
-                    in_position = True
+                    is_bought = True
 
 
 def save_to_document(payload_data):
