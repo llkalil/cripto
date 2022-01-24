@@ -1,4 +1,7 @@
+import hashlib
+import hmac
 import json
+import time
 from datetime import datetime
 
 import numpy as np
@@ -10,15 +13,16 @@ import messages
 from strategy import Strategy
 
 data = []
-RSI_PERIOD = 14
-RSI_OVERBOUGHT = 70
-RSI_OVERSOLD = 30
+STRATEGY_PERIOD = 14
 TRADE_ID = 40  # shib
-TRADE_QUANTITY = 0.05
+TRADE_QUANTITY = 100000  # SHIBS
 INTERVAL = 60
+STRATEGY = 'RSI'
+INDICATOR = "7030"
 
 next_value = 0
-is_bought = False
+is_bought = False  # SEMPRE AJUSTAR
+auth_data = {}
 
 
 def call_service(ws, service_name, data, level=0):
@@ -36,14 +40,52 @@ def call_service(ws, service_name, data, level=0):
     ws.send(json_frame)
 
 
+def get_keys():
+    f = open('secret.json')
+    keys = json.load(f)
+    return keys["APIKey"], keys["APISecret"]
+    pass
+
+
+def authenticate(ws):
+    key, secret = get_keys()
+    payload = auth_payload(
+        214404,
+        api_key=key,
+        api_secret=secret)  # prod
+    call_service(ws, 'AuthenticateUser', payload)
+
+
+def create_sha256_signature(key, message):
+    encoding = 'latin-1'
+    return hmac.new(bytes(key, encoding), msg=bytes(message, encoding), digestmod=hashlib.sha256).hexdigest()
+
+
+def auth_payload(user_id, api_key, api_secret):
+    nonce = int(time.time() * 10700)
+    signature = create_sha256_signature(api_secret, '%s%s%s' % (nonce, user_id, api_key))
+
+    result = {
+        'APIKey': api_key,
+        'Signature': signature,
+        'UserId': "%s" % user_id,
+        'Nonce': "%s" % nonce
+    }
+    return result
+
+
 def on_open(ws):
+    authenticate(ws)
+    pass
+
+
+def subscribe_ticker(ws):
     call_service(ws, 'SubscribeTicker', {
         "OMSId": 1,
         "InstrumentId": TRADE_ID,
         "Interval": INTERVAL,
         "IncludeLastCount": 400
     })
-    pass
 
 
 def on_error(ws, error):
@@ -65,30 +107,46 @@ def handle_subscribe_ticker(data_received):
     add_data(data_received)
 
 
-def exec_buy(payload_data):
+def get_quantity(ws):
+    call_service(ws, 'GetAccountPositions', {
+        "OMSId": 1,
+        "AccountId": auth_data["User"]["AccountId"]
+    })
+    pass
+
+
+def save_to_cashbook(action):
     with open('cashbook.csv', 'a') as fd:
-        data_csv = [str(x) for x in payload_data[0]]
-        data_csv.append("Buy")
+        data_csv = [str(x) for x in data[-1]]
+        data_csv.append(action)
         fd.write(','.join(data_csv) + '\n')
-    return True
+    pass
 
 
-def exec_sell(payload_data):
-    with open('cashbook.csv', 'a') as fd:
-        data_csv = [str(x) for x in payload_data[0]]
-        data_csv.append("Sell")
-        fd.write(','.join(data_csv) + '\n')
-    return True
+def execute_order(ws, action):
+    save_to_cashbook(action)
+    if auth_data["Authenticated"]:
+        call_service(ws, 'SendOrder', {
+            "AccountId": auth_data["User"]["AccountId"],
+            "Quantity": TRADE_QUANTITY,
+            "DisplayQuantity": 0,
+            "UseDisplayQuantity": False,
+            "OrderType": 1,
+            "InstrumentId": TRADE_ID,
+            "TrailingAmount": 1.0,
+            "Side": (0 if action == "BUY" else 1),
+            "TimeInForce": 1,
+            "OMSId": 1
+        })
 
 
-def process_data(data_payload):
+def process_data(ws, data_payload):
     global is_bought
 
-    open_time = [int(entry[0]) for entry in data]
     closes = [float(entry[4]) for entry in data]
 
-    if len(closes) > RSI_PERIOD:
-        strategy = Strategy('RSI', '7030', "SHIBBRL", RSI_PERIOD, data)
+    if len(closes) > STRATEGY_PERIOD:
+        strategy = Strategy(STRATEGY, INDICATOR, str(TRADE_ID), STRATEGY_PERIOD, data)
         buyOrSell = strategy.buyOrSell()
         if buyOrSell == "BUY":
             if is_bought:
@@ -96,33 +154,42 @@ def process_data(data_payload):
             else:
                 is_bought = True
                 messages.success_msg(f"BUY - {closes[-1]}")
+                execute_order(ws, "BUY")
         elif buyOrSell == "SELL":
             if is_bought:
                 is_bought = False
                 messages.error_msg(f"SELL {closes[-1]}")
+                execute_order(ws, "SELL")
             else:
                 messages.warning_msg("DO NOTHING")
 
     else:
-        messages.success_msg(f'Waiting for data [{len(closes)}/{RSI_PERIOD}]')
+        messages.success_msg(f'Waiting for data [{len(closes)}/{STRATEGY_PERIOD}]')
     pass
 
 
-def handle_ticker_data_update(data):
+def handle_ticker_data_update(ws, data):
     add_data(data)
-    process_data(data)
+    process_data(ws, data)
 
 
 def on_message(ws, data):
+    global auth_data
     messages.success_msg('Received event')
     msg = json.loads(data)
     payload_data = json.loads(msg['o'])
     service = msg['n']
 
-    if service == 'SubscribeTicker':
+    if service == 'AuthenticateUser':
+        auth_data = payload_data
+        print(auth_data)
+        subscribe_ticker(ws)
+    elif service == 'SendOrder':
+        messages.success_msg("ORDER IS SUCCESS")
+    elif service == 'SubscribeTicker':
         handle_subscribe_ticker(payload_data)
     elif service == 'TickerDataUpdateEvent':
-        handle_ticker_data_update(payload_data)
+        handle_ticker_data_update(ws, payload_data)
     else:
         messages.error_msg('Unknown service: %s' % service)
 

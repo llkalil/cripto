@@ -22,7 +22,7 @@ with open(csv_name, newline='') as f:
     i = 0
     for row in reader:
         if i != 0:
-            if row[10] == "Buy":
+            if row[10] == "BUY":
                 points_y_b.append(i - 1)
                 points_x_b.append(float(row[4]))
             else:
